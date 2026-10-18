@@ -8,6 +8,7 @@ const { generateTemporaryPassword } = require('../../utils/password');
 const { invalidateTenantCache } = require('../../middlewares/tenantResolver.middleware');
 const { sendAdminCredentialsEmail } = require('../../services/email/welcomeEmail');
 const { ROLE_TEMPLATES, EXTRA_ACTIONS, ADMIN_ROLE } = require('./roleTemplates');
+const { DEFAULT_PRICE_PER_STUDENT } = require('../../utils/money');
 
 async function assertSlugAvailable(conn, slug) {
   const problem = slugProblem(slug);
@@ -155,6 +156,7 @@ async function provisionTenant(input, { superadminId, ip }) {
         admin_email: adminEmail,
         admin_phone: input.admin.phone || null,
         plan: input.plan || 'standard',
+        price_per_student: input.pricePerStudent ?? DEFAULT_PRICE_PER_STUDENT,
         notes: input.notes || null,
         created_by: superadminId,
       });
@@ -163,7 +165,13 @@ async function provisionTenant(input, { superadminId, ip }) {
         superadminId,
         tenantId: tenant.id,
         action: 'tenant.create',
-        details: { name: tenant.name, slug, adminEmail, plan: input.plan || 'standard' },
+        details: {
+          name: tenant.name,
+          slug,
+          adminEmail,
+          plan: input.plan || 'standard',
+          pricePerStudent: input.pricePerStudent ?? DEFAULT_PRICE_PER_STUDENT,
+        },
         ip,
       });
 

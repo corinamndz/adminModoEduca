@@ -9,6 +9,7 @@ const { invalidateTenantCache } = require('../../middlewares/tenantResolver.midd
 const { loginUrlFor } = require('../../services/email/welcomeEmail');
 const { metricsByTenant, metricsForTenant } = require('../stats/metrics.service');
 const { deliverCredentials } = require('./provisioning.service');
+const { round2, priceOf, CURRENCY } = require('../../utils/money');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -24,7 +25,8 @@ async function listTenants({ search, status } = {}) {
       't.created_at',
       'a.admin_full_name',
       'a.admin_email',
-      'a.plan'
+      'a.plan',
+      'a.price_per_student'
     )
     .orderBy('t.created_at', 'desc');
 
@@ -37,17 +39,23 @@ async function listTenants({ search, status } = {}) {
   const rows = await query;
   const metrics = await metricsByTenant(rows.map((r) => r.id));
 
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    slug: r.slug,
-    status: r.status,
-    createdAt: r.created_at,
-    plan: r.plan || 'standard',
-    admin: { fullName: r.admin_full_name, email: r.admin_email },
-    loginUrl: loginUrlFor(r.slug),
-    metrics: metrics.get(r.id),
-  }));
+  return rows.map((r) => {
+    const m = metrics.get(r.id);
+    const pricePerStudent = priceOf(r.price_per_student);
+    return {
+      id: r.id,
+      name: r.name,
+      slug: r.slug,
+      status: r.status,
+      createdAt: r.created_at,
+      plan: r.plan || 'standard',
+      pricePerStudent,
+      monthlyEstimate: round2(m.studentsActive * pricePerStudent),
+      admin: { fullName: r.admin_full_name, email: r.admin_email },
+      loginUrl: loginUrlFor(r.slug),
+      metrics: m,
+    };
+  });
 }
 
 /** ¿Está libre esta URL? Para validar en vivo desde el modal de creación. */
@@ -63,16 +71,17 @@ async function checkSlug(rawSlug) {
 
 /** Ficha completa. `trx` es la transacción del tenantResolver (acotada al colegio). */
 async function getTenantDetail(trx, tenant) {
-  const [settings, account, metrics, deliveries] = await Promise.all([
-    trx('tenant_settings').where({ tenant_id: tenant.id }).first('contact_email', 'contact_phone', 'logo_url', 'primary_color'),
-    trx('platform.tenant_accounts').where({ tenant_id: tenant.id }).first(),
-    metricsForTenant(trx, tenant.id),
-    trx('platform.credential_deliveries')
-      .where({ tenant_id: tenant.id })
-      .orderBy('created_at', 'desc')
-      .limit(10)
-      .select('id', 'recipient', 'kind', 'status', 'error', 'created_at'),
-  ]);
+  // En serie: es una sola conexión (la transacción); pg no admite consultas simultáneas en ella.
+  const settings = await trx('tenant_settings')
+    .where({ tenant_id: tenant.id })
+    .first('contact_email', 'contact_phone', 'logo_url', 'primary_color');
+  const account = await trx('platform.tenant_accounts').where({ tenant_id: tenant.id }).first();
+  const metrics = await metricsForTenant(trx, tenant.id);
+  const deliveries = await trx('platform.credential_deliveries')
+    .where({ tenant_id: tenant.id })
+    .orderBy('created_at', 'desc')
+    .limit(10)
+    .select('id', 'recipient', 'kind', 'status', 'error', 'created_at');
 
   let adminUser = null;
   if (account?.primary_admin_user_id) {
@@ -81,6 +90,9 @@ async function getTenantDetail(trx, tenant) {
       .first('id', 'username', 'full_name', 'status', 'last_login_at', 'must_change_password');
   }
 
+  const plan = account?.plan || 'standard';
+  const pricePerStudent = priceOf(account?.price_per_student);
+
   return {
     id: tenant.id,
     name: tenant.name,
@@ -88,7 +100,14 @@ async function getTenantDetail(trx, tenant) {
     status: tenant.status,
     createdAt: tenant.created_at,
     loginUrl: loginUrlFor(tenant.slug),
-    plan: account?.plan || 'standard',
+    plan,
+    pricePerStudent,
+    billing: {
+      currency: CURRENCY,
+      // Solo factura si está activo y no en plan de prueba (mismo criterio que el panel global).
+      billable: tenant.status === 'active' && plan !== 'trial',
+      monthlyEstimate: round2(metrics.studentsActive * pricePerStudent),
+    },
     notes: account?.notes || null,
     contact: { email: settings?.contact_email || null, phone: settings?.contact_phone || null },
     admin: {
@@ -110,6 +129,57 @@ async function getTenantDetail(trx, tenant) {
       createdAt: d.created_at,
     })),
   };
+}
+
+/**
+ * Edita la configuración del colegio: nombre (public.tenants) y datos
+ * comerciales (platform.tenant_accounts: plan, tarifa por alumno, notas).
+ * Solo se tocan los campos enviados; la auditoría guarda el antes y el después.
+ */
+async function updateTenant(trx, tenant, patch, { superadminId, ip }) {
+  const account = await trx('platform.tenant_accounts').where({ tenant_id: tenant.id }).first();
+  const changes = {};
+
+  if (patch.name !== undefined && patch.name !== tenant.name) {
+    await trx('tenants').where({ id: tenant.id }).update({ name: patch.name, updated_at: trx.fn.now() });
+    changes.name = { from: tenant.name, to: patch.name };
+  }
+
+  const accountPatch = {};
+  if (patch.plan !== undefined && patch.plan !== account?.plan) {
+    accountPatch.plan = patch.plan;
+    changes.plan = { from: account?.plan ?? null, to: patch.plan };
+  }
+  if (patch.pricePerStudent !== undefined && patch.pricePerStudent !== priceOf(account?.price_per_student)) {
+    accountPatch.price_per_student = patch.pricePerStudent;
+    changes.pricePerStudent = { from: priceOf(account?.price_per_student), to: patch.pricePerStudent };
+  }
+  if (patch.notes !== undefined && (patch.notes || null) !== (account?.notes || null)) {
+    accountPatch.notes = patch.notes || null;
+    changes.notes = true; // el texto no va a la auditoría
+  }
+
+  if (Object.keys(accountPatch).length) {
+    if (account) {
+      await trx('platform.tenant_accounts').where({ tenant_id: tenant.id }).update({ ...accountPatch, updated_at: trx.fn.now() });
+    } else {
+      // Colegio creado fuera del Tenant Manager y sin ficha: se crea con lo enviado.
+      await trx('platform.tenant_accounts').insert({
+        tenant_id: tenant.id,
+        admin_full_name: 'Sin asignar',
+        admin_email: '',
+        created_by: superadminId,
+        ...accountPatch,
+      });
+    }
+  }
+
+  if (Object.keys(changes).length) {
+    await audit(trx, { superadminId, tenantId: tenant.id, action: 'tenant.update', details: changes, ip });
+    if (changes.name) invalidateTenantCache(tenant.slug);
+  }
+
+  return getTenantDetail(trx, { ...tenant, name: patch.name ?? tenant.name });
 }
 
 /**
@@ -203,4 +273,4 @@ async function resendCredentials(trx, tenant, { email } = {}, { superadminId, ip
   };
 }
 
-module.exports = { listTenants, checkSlug, getTenantDetail, setTenantStatus, resendCredentials };
+module.exports = { listTenants, checkSlug, getTenantDetail, updateTenant, setTenantStatus, resendCredentials };

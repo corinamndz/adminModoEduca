@@ -1,8 +1,12 @@
 const { sendMail, escapeHtml } = require('./mailer');
 const { schoolAppUrl } = require('../../config/env');
 
-/** Enlace al login del sistema escolar con el colegio ya elegido (lib/tenantSlug.js del colegio). */
-const loginUrlFor = (slug) => `${schoolAppUrl}/login?colegio=${encodeURIComponent(slug)}`;
+/**
+ * Login del colegio en el sistema escolar: el colegio va en la ruta
+ * ({SCHOOL_APP_URL}/<slug>/login), y su sesión se guarda aparte de la de
+ * otros colegios (sistema-escolar/frontend/src/lib/tenantPath.js y api/tokenStore.js).
+ */
+const loginUrlFor = (slug) => `${schoolAppUrl}/${encodeURIComponent(slug)}/login`;
 
 /**
  * Correo con las credenciales del administrador principal del colegio.

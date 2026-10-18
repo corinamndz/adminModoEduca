@@ -94,10 +94,44 @@ async function metricsByTenant(tenantIds) {
   return result;
 }
 
+const MONTHLY_SQL = `
+  SELECT tenant_id, to_char(date_trunc('month', created_at), 'YYYY-MM') AS month, count(*) AS students
+  FROM students
+  WHERE status = 'active'
+`;
+
+/**
+ * Alumnos activos por colegio y mes de registro: [{ tenantId, month: 'YYYY-MM', students }].
+ * Mismo esquema de dos modos que metricsByTenant (bypass de RLS o colegio por colegio).
+ */
+async function activeStudentsByMonth(tenantIds) {
+  if (!tenantIds.length) return [];
+  const toRow = (r) => ({ tenantId: r.tenant_id, month: r.month, students: r.students });
+
+  if (await detectRlsBypass()) {
+    const { rows } = await db.raw(`${MONTHLY_SQL} AND tenant_id = ANY(?::uuid[]) GROUP BY 1, 2`, [tenantIds]);
+    return rows.map(toRow);
+  }
+
+  const out = [];
+  for (let i = 0; i < tenantIds.length; i += PER_TENANT_CONCURRENCY) {
+    const chunk = tenantIds.slice(i, i + PER_TENANT_CONCURRENCY);
+    await Promise.all(
+      chunk.map((id) =>
+        withTenantTransaction(id, async (trx) => {
+          const { rows } = await trx.raw(`${MONTHLY_SQL} AND tenant_id = ? GROUP BY 1, 2`, [id]);
+          out.push(...rows.map(toRow));
+        })
+      )
+    );
+  }
+  return out;
+}
+
 /** Métricas de un colegio dentro de una transacción ya acotada (req.db del tenantResolver). */
 async function metricsForTenant(trx, tenantId) {
   const { rows } = await trx.raw(`${METRICS_SQL} WHERE t.id = ?`, [tenantId]);
   return rows[0] ? toMetrics(rows[0]) : { ...EMPTY };
 }
 
-module.exports = { metricsByTenant, metricsForTenant };
+module.exports = { metricsByTenant, metricsForTenant, activeStudentsByMonth };

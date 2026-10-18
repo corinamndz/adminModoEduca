@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import Icon from '../ui/Icon';
+import BrandLogo from './BrandLogo';
 
 const NAV = [
   { to: '/', label: 'Panel global', icon: 'home', end: true },
@@ -22,27 +23,26 @@ function AppLayout() {
   const location = useLocation();
   // Una ficha de colegio (/:slug) se considera dentro de "Colegios".
   const inTenant = !['/', '/tenants'].includes(location.pathname);
+  const closeMenu = () => setMenuOpen(false);
 
   return (
     <div className={`layout ${menuOpen ? 'layout--menu-open' : ''}`}>
       <aside className="sidebar">
         <div className="sidebar__brand">
-          <span className="sidebar__logo">
-            <Icon name="shield" size={20} />
+          <BrandLogo onClick={closeMenu} />
+          <span className="sidebar__product">
+            <Icon name="shield" size={13} /> Tenant Manager
           </span>
-          <div>
-            <strong>MoDo Educa</strong>
-            <small>Tenant Manager</small>
-          </div>
         </div>
 
         <nav className="sidebar__nav" aria-label="Principal">
+          <span className="sidebar__section">Administración</span>
           {NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
-              onClick={() => setMenuOpen(false)}
+              onClick={closeMenu}
               className={({ isActive }) =>
                 `sidebar__link ${isActive || (item.to === '/tenants' && inTenant) ? 'sidebar__link--active' : ''}`
               }
@@ -68,13 +68,17 @@ function AppLayout() {
         </div>
       </aside>
 
-      <div className="layout__backdrop" onClick={() => setMenuOpen(false)} aria-hidden="true" />
+      <div className="layout__backdrop" onClick={closeMenu} aria-hidden="true" />
 
       <div className="layout__main">
         <header className="topbar">
           <button type="button" className="btn btn--ghost btn--icon topbar__menu" onClick={() => setMenuOpen(true)} aria-label="Abrir menú">
             <Icon name="menu" />
           </button>
+          {/* En móvil el sidebar está oculto: el logo también va arriba. */}
+          <span className="topbar__logo">
+            <BrandLogo variant="light" />
+          </span>
           <span className="topbar__scope">
             <Icon name="shield" size={15} /> Administración de la plataforma
           </span>

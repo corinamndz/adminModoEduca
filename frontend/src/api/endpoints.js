@@ -10,6 +10,7 @@ export const tenantsApi = {
   checkSlug: (slug) => client.get('/tenants/slug-availability', { params: { slug } }).then((r) => r.data),
   create: (payload) => client.post('/tenants', payload).then((r) => r.data),
   get: (slug) => client.get(`/tenants/${encodeURIComponent(slug)}`).then((r) => r.data),
+  update: (slug, patch) => client.patch(`/tenants/${encodeURIComponent(slug)}`, patch).then((r) => r.data),
   setStatus: (slug, status) => client.patch(`/tenants/${encodeURIComponent(slug)}/status`, { status }).then((r) => r.data),
   resendCredentials: (slug, email) =>
     client.post(`/tenants/${encodeURIComponent(slug)}/resend-credentials`, { email }).then((r) => r.data),

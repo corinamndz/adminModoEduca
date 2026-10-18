@@ -5,9 +5,13 @@
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/;
 
 export const RESERVED_SLUGS = new Set([
+  // plataforma / panel superadmin
   'admin', 'api', 'app', 'assets', 'auth', 'dashboard', 'health', 'login', 'logout',
   'portal', 'public', 'static', 'storage', 'superadmin', 'tenants', 'www', 'mail',
   'settings', 'help', 'soporte', 'support', 'status', 'slug-availability',
+  // rutas de primer nivel del sistema escolar (su lib/tenantPath.js)
+  'tenant', 'roles', 'staff', 'students', 'guardians', 'academics', 'schedules', 'discipline',
+  'clubs', 'events', 'evaluation-plans', 'programmatic-content', 'grading', 'payments', 'src',
 ]);
 
 export const normalizeSlug = (value) => String(value || '').trim().toLowerCase();

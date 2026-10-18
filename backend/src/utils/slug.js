@@ -6,14 +6,21 @@
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/;
 
 /**
- * Palabras que no pueden ser slug porque chocarían con rutas propias de la
- * plataforma (`/login`, `/api`, `/tenants`…) al usar el slug como primer
- * segmento de la URL. Mantener sincronizado con frontend/src/lib/slug.js.
+ * Palabras que no pueden ser slug porque el slug es el primer segmento de la
+ * URL y chocarían con rutas propias:
+ *   - del panel y la plataforma (`/login`, `/api`, `/tenants`…);
+ *   - del sistema escolar: APP_ROUTES de sistema-escolar/frontend/src/lib/tenantPath.js
+ *     (`/students`, `/payments`…). Si allá se agrega una ruta de primer nivel, agregarla aquí.
+ * Mantener sincronizado con frontend/src/lib/slug.js.
  */
 const RESERVED_SLUGS = new Set([
+  // plataforma / panel superadmin
   'admin', 'api', 'app', 'assets', 'auth', 'dashboard', 'health', 'login', 'logout',
   'portal', 'public', 'static', 'storage', 'superadmin', 'tenants', 'www', 'mail',
   'settings', 'help', 'soporte', 'support', 'status', 'slug-availability',
+  // rutas de primer nivel del sistema escolar
+  'tenant', 'roles', 'staff', 'students', 'guardians', 'academics', 'schedules', 'discipline',
+  'clubs', 'events', 'evaluation-plans', 'programmatic-content', 'grading', 'payments', 'src',
 ]);
 
 const normalizeSlug = (value) => String(value || '').trim().toLowerCase();

@@ -5,12 +5,14 @@ import Button from '../../components/ui/Button';
 import Icon from '../../components/ui/Icon';
 import Modal from '../../components/ui/Modal';
 import { Alert, Field } from '../../components/ui/primitives';
+import PriceInput, { parsePrice, priceProblem } from '../../components/ui/PriceInput';
 import { isReservedSlug, isValidSlug, normalizeSlug, slugify } from '../../lib/slug';
 
 const EMPTY = {
   name: '',
   slug: '',
   plan: 'standard',
+  pricePerStudent: '1,00',
   contactPhone: '',
   notes: '',
   admin: { fullName: '', email: '', phone: '' },
@@ -83,7 +85,9 @@ function CreateTenantModal({ open, onClose, onCreated }) {
   };
 
   const slugBlocked = ['invalid', 'taken', 'checking'].includes(availability.status);
-  const canSubmit = form.name.trim() && form.slug && form.admin.fullName.trim() && form.admin.email.trim() && !slugBlocked;
+  const priceError = priceProblem(form.pricePerStudent);
+  const canSubmit =
+    form.name.trim() && form.slug && form.admin.fullName.trim() && form.admin.email.trim() && !slugBlocked && !priceError;
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -92,7 +96,11 @@ function CreateTenantModal({ open, onClose, onCreated }) {
     setErrors({});
     setFormError('');
     try {
-      const result = await tenantsApi.create({ ...form, slug: form.slug.replace(/^-+|-+$/g, '') });
+      const result = await tenantsApi.create({
+        ...form,
+        slug: form.slug.replace(/^-+|-+$/g, ''),
+        pricePerStudent: parsePrice(form.pricePerStudent),
+      });
       onCreated(result);
     } catch (err) {
       setErrors(fieldErrors(err));
@@ -166,6 +174,21 @@ function CreateTenantModal({ open, onClose, onCreated }) {
               <option value="standard">Estándar</option>
               <option value="premium">Premium</option>
             </select>
+          </Field>
+
+          <Field
+            label="Valor por alumno ($)"
+            htmlFor="t-price"
+            required
+            error={errors.pricePerStudent || priceError}
+            hint="Tarifa mensual en USD por cada alumno registrado."
+          >
+            <PriceInput
+              id="t-price"
+              value={form.pricePerStudent}
+              onChange={(v) => set('pricePerStudent', v)}
+              invalid={Boolean(errors.pricePerStudent || priceError)}
+            />
           </Field>
 
           <Field label="Teléfono del colegio" htmlFor="t-phone" error={errors.contactPhone}>

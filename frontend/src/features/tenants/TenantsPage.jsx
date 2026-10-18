@@ -6,7 +6,7 @@ import Button from '../../components/ui/Button';
 import Icon from '../../components/ui/Icon';
 import { Alert, Badge, Card, EmptyState, PageHeader } from '../../components/ui/primitives';
 import Spinner from '../../components/ui/Spinner';
-import { formatDate, formatNumber, PLAN_LABELS, STATUS_LABELS, timeAgo } from '../../lib/format';
+import { formatDate, formatMoney, formatNumber, formatPrice, PLAN_LABELS, STATUS_LABELS, timeAgo } from '../../lib/format';
 import CreateTenantModal from './CreateTenantModal';
 import CredentialsResult from './CredentialsResult';
 
@@ -121,6 +121,7 @@ function TenantsPage() {
                   <th className="num">Alumnos</th>
                   <th className="num">Represent.</th>
                   <th className="num">Personal</th>
+                  <th className="num">Ingreso / mes</th>
                   <th>Última actividad</th>
                   <th>Alta</th>
                   <th aria-label="Acciones" />
@@ -144,6 +145,10 @@ function TenantsPage() {
                     <td className="num">{formatNumber(t.metrics.studentsEnrolled)}</td>
                     <td className="num">{formatNumber(t.metrics.guardians)}</td>
                     <td className="num">{formatNumber(t.metrics.staff)}</td>
+                    <td className="num">
+                      <span className="cell-title">{formatMoney(t.monthlyEstimate)}</span>
+                      <span className="cell-sub">{formatPrice(t.pricePerStudent)} / alumno</span>
+                    </td>
                     <td className="cell-muted">{timeAgo(t.metrics.lastLoginAt)}</td>
                     <td className="cell-muted">{formatDate(t.createdAt)}</td>
                     <td className="cell-actions">

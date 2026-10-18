@@ -42,7 +42,7 @@ cada request fija `app.tenant_id` y las políticas RLS filtran las filas. El Ten
   se envía el correo SMTP. Si el correo falla, el colegio queda creado igual y la respuesta muestra la clave
   temporal una sola vez para entregarla por otro medio. Siempre se puede usar «Reenviar credenciales».
 - El **usuario del admin es su correo** (en minúsculas), igual que en el portal del colegio.
-- El correo enlaza a `SCHOOL_APP_URL/login?colegio=<slug>`, que el login escolar ya interpreta.
+- El correo y los botones del panel enlazan a `SCHOOL_APP_URL/<slug>/login`: el colegio va en la ruta y su sesión se guarda aparte de la de otros colegios.
 - **Desactivar** un colegio pone `tenants.status = 'suspended'`: el login escolar ya rechaza colegios que no
   estén `active`.
 
@@ -69,7 +69,7 @@ cd backend
 cp .env.example .env          # completa DB_*, SUPERADMIN_JWT_SECRET, SMTP_*, SCHOOL_APP_URL
 npm install
 npm run migrate               # crea el esquema `platform`
-npm run superadmin:create -- --email tu@correo.com --name "Tu Nombre" --password "UnaClaveLarga123!"
+npm run superadmin:create -- --email tu@correo.com --name "Corina Méndez" --password "UnaClaveLarga123!"
 npm run dev                   # http://localhost:4000
 
 # 3. Frontend
@@ -98,11 +98,12 @@ con `SUPERADMIN_JWT_SECRET`, distinto del secreto del colegio.
 |---|---|---|
 | POST | `/api/auth/login` | `{ email, password }` → `{ accessToken, user }` |
 | GET | `/api/auth/me` | Perfil del superadmin |
-| GET | `/api/stats/overview` | Colegios por estado, totales de alumnos, representantes y personal, top 5 y altas recientes |
-| GET | `/api/tenants?search=&status=` | Lista con métricas por colegio |
+| GET | `/api/stats/overview` | Colegios por estado, totales, ingresos estimados (por colegio y tendencia de 12 meses), altas recientes |
+| GET | `/api/tenants?search=&status=` | Lista con métricas, tarifa e ingreso estimado por colegio |
 | GET | `/api/tenants/slug-availability?slug=` | Valida formato, palabras reservadas y disponibilidad |
-| POST | `/api/tenants` | Alta: `{ name, slug, plan?, contactPhone?, notes?, admin: { fullName, email, phone? } }` |
-| GET | `/api/tenants/:tenantSlug` | Ficha: admin, contacto, métricas, últimos envíos |
+| POST | `/api/tenants` | Alta: `{ name, slug, plan?, pricePerStudent? (1.00), contactPhone?, notes?, admin: { fullName, email, phone? } }` |
+| GET | `/api/tenants/:tenantSlug` | Ficha: admin, contacto, contrato (tarifa e ingreso estimado), métricas, últimos envíos |
+| PATCH | `/api/tenants/:tenantSlug` | Edita `{ name?, plan?, pricePerStudent?, notes? }` (solo lo enviado; queda en auditoría) |
 | PATCH | `/api/tenants/:tenantSlug/status` | `{ status: 'active' \| 'suspended' }` |
 | POST | `/api/tenants/:tenantSlug/resend-credentials` | `{ email? }`: nueva clave temporal y correo |
 
@@ -116,6 +117,16 @@ con `SUPERADMIN_JWT_SECRET`, distinto del secreto del colegio.
 | Personal | `staff.status = 'active'` (y de ellos, `staff_type = 'teaching'` = docentes) |
 
 Los totales del panel global suman **solo colegios activos**.
+
+### Monetización
+
+- Cada colegio tiene su **tarifa mensual por alumno** en `platform.tenant_accounts.price_per_student`
+  (USD, `NUMERIC(10,2)`, por defecto `1.00`, entre 0 y 10.000). Se fija en el alta y se edita en la ficha.
+- **Ingreso mensual estimado del colegio** = alumnos con ficha activa × su tarifa.
+- **Total de la plataforma** = suma de los colegios **facturables** (activos y con plan distinto de «Prueba»);
+  los de prueba se muestran aparte como ingreso potencial.
+- La tendencia de 12 meses reconstruye cada mes con los alumnos activos de hoy según su fecha de registro y la
+  tarifa **actual** de cada colegio (no hay historial de bajas ni de tarifas).
 
 ## Puntos a mantener sincronizados con el sistema escolar
 

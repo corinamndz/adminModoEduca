@@ -8,9 +8,10 @@ import Modal from '../../components/ui/Modal';
 import Spinner from '../../components/ui/Spinner';
 import { useToast } from '../../components/ui/Toast';
 import { Alert, Badge, Card, Field, PageHeader, StatCard } from '../../components/ui/primitives';
-import { formatDate, formatDateTime, formatNumber, PLAN_LABELS, STATUS_LABELS, timeAgo } from '../../lib/format';
+import { formatDate, formatDateTime, formatMoney, formatNumber, formatPrice, PLAN_LABELS, STATUS_LABELS, timeAgo } from '../../lib/format';
 import NotFoundPage from '../dashboard/NotFoundPage';
 import CredentialsResult from './CredentialsResult';
+import EditTenantModal from './EditTenantModal';
 
 /** Ficha de un colegio, resuelto por la URL: /:tenantSlug */
 function TenantDetailPage({ slug }) {
@@ -23,6 +24,7 @@ function TenantDetailPage({ slug }) {
   const [resendEmail, setResendEmail] = useState('');
   const [resendBusy, setResendBusy] = useState(false);
   const [resendResult, setResendResult] = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -95,7 +97,8 @@ function TenantDetailPage({ slug }) {
         }
         subtitle={
           <>
-            <code className="slug">/{tenant.slug}</code> · Plan {PLAN_LABELS[tenant.plan] || tenant.plan} · Alta el {formatDate(tenant.createdAt)}
+            <code className="slug">/{tenant.slug}</code> · Plan {PLAN_LABELS[tenant.plan] || tenant.plan} ·{' '}
+            {formatPrice(tenant.pricePerStudent, tenant.billing.currency)} por alumno · Alta el {formatDate(tenant.createdAt)}
           </>
         }
         actions={
@@ -163,8 +166,34 @@ function TenantDetailPage({ slug }) {
           </dl>
         </Card>
 
-        <Card title="Contacto y notas">
+        <Card
+          title="Contrato y facturación"
+          actions={
+            <Button variant="secondary" size="sm" icon="pencil" onClick={() => setEditOpen(true)}>
+              Editar
+            </Button>
+          }
+        >
+          <div className="contract-hero">
+            <span className="contract-hero__label">Ingreso mensual estimado</span>
+            <strong className="contract-hero__value">{formatMoney(tenant.billing.monthlyEstimate, tenant.billing.currency)}</strong>
+            <span className="contract-hero__formula">
+              {formatNumber(m.studentsActive)} alumnos registrados × {formatPrice(tenant.pricePerStudent, tenant.billing.currency)}
+            </span>
+          </div>
           <dl className="detail-list">
+            <dt>Valor por alumno</dt>
+            <dd>{formatPrice(tenant.pricePerStudent, tenant.billing.currency)} / mes</dd>
+            <dt>Plan</dt>
+            <dd>{PLAN_LABELS[tenant.plan] || tenant.plan}</dd>
+            <dt>Facturación</dt>
+            <dd>
+              {tenant.billing.billable ? (
+                <Badge variant="success">Facturable</Badge>
+              ) : (
+                <Badge variant="neutral">{isActive ? 'No factura: plan de prueba' : 'No factura: colegio inactivo'}</Badge>
+              )}
+            </dd>
             <dt>Correo del colegio</dt>
             <dd>{tenant.contact.email || '—'}</dd>
             <dt>Teléfono</dt>
@@ -209,6 +238,17 @@ function TenantDetailPage({ slug }) {
           <p className="card__empty">Todavía no se han enviado credenciales desde el Tenant Manager.</p>
         )}
       </Card>
+
+      <EditTenantModal
+        open={editOpen}
+        tenant={tenant}
+        onClose={() => setEditOpen(false)}
+        onSaved={(updated) => {
+          setTenant(updated);
+          setEditOpen(false);
+          toast.success('Cambios guardados.');
+        }}
+      />
 
       <Modal
         open={confirmSuspend}
