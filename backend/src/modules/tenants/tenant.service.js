@@ -23,6 +23,7 @@ async function listTenants({ search, status } = {}) {
       't.slug',
       't.status',
       't.created_at',
+      't.schema_name',
       'a.admin_full_name',
       'a.admin_email',
       'a.plan',
@@ -49,6 +50,7 @@ async function listTenants({ search, status } = {}) {
       status: r.status,
       createdAt: r.created_at,
       plan: r.plan || 'standard',
+      schemaName: r.schema_name || null,
       pricePerStudent,
       monthlyEstimate: round2(m.studentsActive * pricePerStudent),
       admin: { fullName: r.admin_full_name, email: r.admin_email },
@@ -100,6 +102,8 @@ async function getTenantDetail(trx, tenant) {
     status: tenant.status,
     createdAt: tenant.created_at,
     loginUrl: loginUrlFor(tenant.slug),
+    // Dónde viven sus datos: esquema propio, o null = esquema compartido public (colegios anteriores).
+    schemaName: tenant.schema_name || null,
     plan,
     pricePerStudent,
     billing: {

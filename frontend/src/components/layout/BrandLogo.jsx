@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom';
-import logoLight from '../../assets/modo-educa-logo.webp';
-import logoDark from '../../assets/modo-educa-logo-dark.webp';
+import logoLight from '../../assets/modo-educa-logo.png';
+import logoDark from '../../assets/modo-educa-logo-dark.png';
 
 /**
  * Logotipo oficial de MoDo Educa, enlazado al panel global.
  *
  * `variant`:
- *   'dark'  → sobre fondo oscuro (sidebar): modo-educa-logo-dark.webp, derivado
+ *   'dark'  → sobre fondo oscuro (sidebar): modo-educa-logo-dark.png, derivado
  *             del original con "Educa" y el lema en claro y el cuerpo opaco
  *             (el original se exportó para fondo blanco y se apaga sobre oscuro).
  *   'light' → sobre fondo claro (barra superior en móvil): el original.
@@ -18,8 +18,8 @@ function BrandLogo({ variant = 'dark', onClick }) {
       <img
         src={variant === 'dark' ? logoDark : logoLight}
         alt="MoDo Educa · Ir al panel global"
-        width="1201"
-        height="228"
+        width="1400"
+        height="410"
         decoding="async"
       />
     </Link>

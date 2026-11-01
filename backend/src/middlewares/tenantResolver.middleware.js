@@ -1,4 +1,4 @@
-const { db } = require('../config/database');
+const { db, scopeToTenant } = require('../config/database');
 const { ApiError } = require('../utils/ApiError');
 const { SLUG_RE, normalizeSlug } = require('../utils/slug');
 
@@ -32,7 +32,7 @@ async function findTenantBySlug(slug) {
   const hit = cache.get(slug);
   if (hit && hit.expiresAt > Date.now()) return hit.tenant;
 
-  const tenant = await db('tenants').where({ slug }).first('id', 'name', 'slug', 'status', 'created_at');
+  const tenant = await db('tenants').where({ slug }).first('id', 'name', 'slug', 'status', 'created_at', 'schema_name');
   // También se cachea el "no existe" para no martillar la base con URLs inventadas.
   cache.set(slug, { tenant: tenant || null, expiresAt: Date.now() + CACHE_TTL_MS });
   return tenant || null;
@@ -63,7 +63,8 @@ function tenantResolver({ param = 'tenantSlug', allowInactive = false } = {}) {
     let trx;
     try {
       trx = await db.transaction();
-      await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [tenant.id]);
+      // RLS por app.tenant_id y, si el colegio tiene esquema propio, search_path a ese esquema.
+      await scopeToTenant(trx, { id: tenant.id, schemaName: tenant.schema_name });
     } catch (err) {
       if (trx && !trx.isCompleted()) await trx.rollback().catch(() => {});
       return next(err);

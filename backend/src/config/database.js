@@ -34,10 +34,37 @@ const db = knex({
  * también si mañana se le quita BYPASSRLS al rol.
  */
 async function withTenantTransaction(tenantId, work) {
+  const schemaName = await tenantSchemaOf(tenantId);
   return db.transaction(async (trx) => {
-    await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [tenantId]);
+    await scopeToTenant(trx, { id: tenantId, schemaName });
     return work(trx);
   });
+}
+
+/**
+ * Acota una transacción a un colegio:
+ *   - app.tenant_id → políticas RLS (igual que siempre);
+ *   - search_path   → si el colegio tiene esquema propio, sus tablas se
+ *     resuelven ahí; las globales (tenants, modules…) siguen en public.
+ * SET LOCAL (set_config(..., true)): se deshace solo al terminar la transacción.
+ */
+async function scopeToTenant(trx, { id, schemaName }) {
+  await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [id]);
+  if (schemaName) {
+    await trx.raw("SELECT set_config('search_path', format('%I, public', ?::text), true)", [schemaName]);
+  }
+}
+
+// El esquema de un colegio se asigna al crearlo y no cambia: caché sin vencimiento
+// para los que lo tienen; los "sin esquema" se reconsultan (podrían migrarse).
+const schemaCache = new Map();
+async function tenantSchemaOf(tenantId) {
+  if (schemaCache.has(tenantId)) return schemaCache.get(tenantId);
+  // to_jsonb(t)->>'schema_name': funciona aunque la columna aún no exista (migración 003 pendiente).
+  const row = await db('tenants as t').where('t.id', tenantId).first(db.raw("to_jsonb(t)->>'schema_name' AS schema_name"));
+  const schemaName = row?.schema_name || null;
+  if (schemaName) schemaCache.set(tenantId, schemaName);
+  return schemaName;
 }
 
 let rlsBypass = null;
@@ -61,4 +88,4 @@ async function detectRlsBypass() {
   return rlsBypass;
 }
 
-module.exports = { db, withTenantTransaction, detectRlsBypass, connectionConfig };
+module.exports = { db, withTenantTransaction, scopeToTenant, tenantSchemaOf, detectRlsBypass, connectionConfig };

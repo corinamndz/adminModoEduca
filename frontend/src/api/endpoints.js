@@ -19,3 +19,14 @@ export const tenantsApi = {
 export const statsApi = {
   overview: () => client.get('/stats/overview').then((r) => r.data),
 };
+
+/** Soporte técnico: tickets de todos los colegios. */
+export const supportApi = {
+  options: () => client.get('/support/options').then((r) => r.data),
+  /** { status: 'active'|'open'|'in_progress'|'resolved'|'closed'|'', tenantId, category, priority, q } → { items, summary } */
+  list: (params) => client.get('/support/tickets', { params }).then((r) => r.data),
+  get: (id) => client.get(`/support/tickets/${id}`).then((r) => r.data),
+  /** { body?, status?, priority?, assignToMe? } → el ticket actualizado */
+  update: (id, patch) => client.patch(`/support/tickets/${id}`, patch).then((r) => r.data),
+  attachmentBlob: (id) => client.get(`/support/tickets/${id}/attachment`, { responseType: 'blob' }).then((r) => r.data),
+};

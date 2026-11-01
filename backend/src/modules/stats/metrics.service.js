@@ -65,29 +65,49 @@ const toMetrics = (row) => ({
 
 const PER_TENANT_CONCURRENCY = 4;
 
-/** Map<tenantId, métricas> para los colegios pedidos. */
-async function metricsByTenant(tenantIds) {
-  const result = new Map();
-  if (!tenantIds.length) return result;
+/**
+ * Corre una consulta para varios colegios, según dónde vivan sus datos:
+ *   - colegios en public (sin esquema propio) y rol con bypass de RLS →
+ *     UNA consulta para todos (`bulk(ids)`);
+ *   - colegios con esquema propio, o rol sin bypass → una por colegio
+ *     (`perTenant(trx, id)`), dentro de su transacción (search_path + RLS).
+ * Devuelve la concatenación de las filas.
+ */
+async function queryAcrossTenants(tenantIds, { bulk, perTenant }) {
+  if (!tenantIds.length) return [];
+  // to_jsonb(t)->>'schema_name': tolera que la migración 003 aún no esté aplicada.
+  const { rows: located } = await db.raw(
+    "SELECT t.id, to_jsonb(t)->>'schema_name' AS schema_name FROM tenants t WHERE t.id = ANY(?::uuid[])",
+    [tenantIds]
+  );
+  const shared = located.filter((t) => !t.schema_name).map((t) => t.id);
+  const ownSchema = located.filter((t) => t.schema_name).map((t) => t.id);
 
+  const out = [];
+  let oneByOne = ownSchema;
   if (await detectRlsBypass()) {
-    // pg serializa el arreglo JS como literal de arreglo de Postgres ('{…}').
-    const { rows } = await db.raw(`${METRICS_SQL} WHERE t.id = ANY(?::uuid[])`, [tenantIds]);
-    rows.forEach((row) => result.set(row.tenant_id, toMetrics(row)));
+    if (shared.length) out.push(...(await bulk(shared)));
   } else {
-    for (let i = 0; i < tenantIds.length; i += PER_TENANT_CONCURRENCY) {
-      const chunk = tenantIds.slice(i, i + PER_TENANT_CONCURRENCY);
-      await Promise.all(
-        chunk.map((id) =>
-          withTenantTransaction(id, async (trx) => {
-            const { rows } = await trx.raw(`${METRICS_SQL} WHERE t.id = ?`, [id]);
-            if (rows[0]) result.set(id, toMetrics(rows[0]));
-          })
-        )
-      );
-    }
+    oneByOne = [...shared, ...ownSchema];
   }
 
+  for (let i = 0; i < oneByOne.length; i += PER_TENANT_CONCURRENCY) {
+    const chunk = oneByOne.slice(i, i + PER_TENANT_CONCURRENCY);
+    const results = await Promise.all(chunk.map((id) => withTenantTransaction(id, (trx) => perTenant(trx, id))));
+    results.forEach((rows) => out.push(...rows));
+  }
+  return out;
+}
+
+/** Map<tenantId, métricas> para los colegios pedidos. */
+async function metricsByTenant(tenantIds) {
+  const rows = await queryAcrossTenants(tenantIds, {
+    // pg serializa el arreglo JS como literal de arreglo de Postgres ('{…}').
+    bulk: async (ids) => (await db.raw(`${METRICS_SQL} WHERE t.id = ANY(?::uuid[])`, [ids])).rows,
+    perTenant: async (trx, id) => (await trx.raw(`${METRICS_SQL} WHERE t.id = ?`, [id])).rows,
+  });
+
+  const result = new Map(rows.map((row) => [row.tenant_id, toMetrics(row)]));
   tenantIds.forEach((id) => {
     if (!result.has(id)) result.set(id, { ...EMPTY });
   });
@@ -102,30 +122,14 @@ const MONTHLY_SQL = `
 
 /**
  * Alumnos activos por colegio y mes de registro: [{ tenantId, month: 'YYYY-MM', students }].
- * Mismo esquema de dos modos que metricsByTenant (bypass de RLS o colegio por colegio).
+ * Mismo reparto que metricsByTenant (ver queryAcrossTenants).
  */
 async function activeStudentsByMonth(tenantIds) {
-  if (!tenantIds.length) return [];
-  const toRow = (r) => ({ tenantId: r.tenant_id, month: r.month, students: r.students });
-
-  if (await detectRlsBypass()) {
-    const { rows } = await db.raw(`${MONTHLY_SQL} AND tenant_id = ANY(?::uuid[]) GROUP BY 1, 2`, [tenantIds]);
-    return rows.map(toRow);
-  }
-
-  const out = [];
-  for (let i = 0; i < tenantIds.length; i += PER_TENANT_CONCURRENCY) {
-    const chunk = tenantIds.slice(i, i + PER_TENANT_CONCURRENCY);
-    await Promise.all(
-      chunk.map((id) =>
-        withTenantTransaction(id, async (trx) => {
-          const { rows } = await trx.raw(`${MONTHLY_SQL} AND tenant_id = ? GROUP BY 1, 2`, [id]);
-          out.push(...rows.map(toRow));
-        })
-      )
-    );
-  }
-  return out;
+  const rows = await queryAcrossTenants(tenantIds, {
+    bulk: async (ids) => (await db.raw(`${MONTHLY_SQL} AND tenant_id = ANY(?::uuid[]) GROUP BY 1, 2`, [ids])).rows,
+    perTenant: async (trx, id) => (await trx.raw(`${MONTHLY_SQL} AND tenant_id = ? GROUP BY 1, 2`, [id])).rows,
+  });
+  return rows.map((r) => ({ tenantId: r.tenant_id, month: r.month, students: r.students }));
 }
 
 /** Métricas de un colegio dentro de una transacción ya acotada (req.db del tenantResolver). */

@@ -1,21 +1,43 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { db } = require('../../config/database');
-const { jwtSecret, jwtExpiresIn } = require('../../config/env');
+const { jwtSecret, jwtExpiresIn, authDebug } = require('../../config/env');
 const { ApiError } = require('../../utils/ApiError');
 const { audit } = require('../../utils/audit');
 
 // Hash fijo para comparar aunque el correo no exista: misma latencia en ambos casos.
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 10);
+const BCRYPT_RE = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
 
 const toDto = (row) => ({ id: row.id, email: row.email, fullName: row.full_name, lastLoginAt: row.last_login_at });
 
+/**
+ * Por qué se rechaza un login (null = credenciales correctas). El cliente
+ * SIEMPRE recibe el mismo mensaje genérico; el motivo solo sirve para
+ * diagnosticar (AUTH_DEBUG=true en desarrollo, o `npm run superadmin:check`).
+ */
+async function loginFailureReason(admin, password) {
+  if (!admin) {
+    await bcrypt.compare(password, DUMMY_HASH); // misma latencia que un correo existente
+    return 'no existe un superadmin con ese correo';
+  }
+  const hash = String(admin.password_hash ?? '').trim();
+  if (!BCRYPT_RE.test(hash)) {
+    // Típico al crear el usuario a mano: se guardó la clave en texto plano u otro tipo de hash.
+    return `password_hash no es un hash bcrypt (empieza con "${hash.slice(0, 4)}…", ${hash.length} caracteres)`;
+  }
+  if (!(await bcrypt.compare(password, hash))) return 'la contraseña no coincide con password_hash';
+  if (admin.status !== 'active') return `la cuenta está en estado "${admin.status}"`;
+  return null;
+}
+
 async function login({ email, password }, { ip } = {}) {
   const normalized = String(email || '').trim().toLowerCase();
-  const admin = await db('platform.superadmins').whereRaw('lower(email) = ?', [normalized]).first();
+  const admin = await db('platform.superadmins').whereRaw('lower(btrim(email)) = ?', [normalized]).first();
 
-  const ok = await bcrypt.compare(String(password || ''), admin ? admin.password_hash : DUMMY_HASH);
-  if (!admin || !ok || admin.status !== 'active') {
+  const reason = await loginFailureReason(admin, String(password || ''));
+  if (reason) {
+    if (authDebug) console.warn(`[auth] Login rechazado para "${normalized}": ${reason}.`);
     throw ApiError.unauthorized('Correo o contraseña incorrectos.');
   }
 
@@ -36,4 +58,4 @@ async function getMe(id) {
   return toDto(admin);
 }
 
-module.exports = { login, getMe };
+module.exports = { login, getMe, loginFailureReason };

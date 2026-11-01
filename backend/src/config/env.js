@@ -17,7 +17,12 @@ module.exports = {
   isProduction,
   jwtSecret: required('SUPERADMIN_JWT_SECRET', 'dev-only-superadmin-secret'),
   jwtExpiresIn: process.env.SUPERADMIN_JWT_EXPIRES_IN || '8h',
+  // true = la consola del backend dice POR QUÉ se rechaza cada login (nunca en producción).
+  authDebug: process.env.AUTH_DEBUG === 'true' && !isProduction,
   saltRounds: Number(process.env.BCRYPT_SALT_ROUNDS) || 10,
+  // Rol de BD del sistema escolar, si es distinto al del Tenant Manager: recibe
+  // permisos sobre cada esquema nuevo. Vacío = mismo rol (no hace falta).
+  schoolDbRole: process.env.SCHOOL_DB_ROLE || null,
   adminFrontendUrl: trimSlash(process.env.ADMIN_FRONTEND_URL || 'http://localhost:5174'),
   schoolAppUrl: trimSlash(process.env.SCHOOL_APP_URL || 'http://localhost:5173'),
   smtp: {

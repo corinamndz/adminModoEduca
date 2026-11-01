@@ -1,6 +1,8 @@
 const bcrypt = require('bcryptjs');
-const { db } = require('../../config/database');
-const { saltRounds } = require('../../config/env');
+const { db, scopeToTenant } = require('../../config/database');
+const { saltRounds, schoolDbRole } = require('../../config/env');
+const { allocateSchemaName } = require('../../utils/schemaName');
+const { createTenantSchema } = require('./schemaProvisioning.service');
 const { ApiError } = require('../../utils/ApiError');
 const { audit } = require('../../utils/audit');
 const { slugProblem, normalizeSlug } = require('../../utils/slug');
@@ -29,16 +31,19 @@ async function createBaseRoles(trx, tenantId) {
     );
   }
 
+  // roles.hierarchy_level llega con la migración 047 del sistema escolar.
+  const { rows: hl } = await trx.raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'roles' AND column_name = 'hierarchy_level') AS ok");
   const roleIdByName = {};
   for (const [name, template] of Object.entries(ROLE_TEMPLATES)) {
-    const [role] = await trx('roles').insert({ tenant_id: tenantId, name, is_system: true }).returning('id');
+    const row = { tenant_id: tenantId, name, is_system: true, ...(hl[0].ok ? { hierarchy_level: template.hierarchyLevel ?? null } : {}) };
+    const [role] = await trx('roles').insert(row).returning('id');
     roleIdByName[name] = role.id;
 
     const permissions = modules
       .map((mod) => {
         const perm = template.allModules || template.byModule?.[mod.code];
         if (!perm) return null;
-        const extraActions = {};
+        const extraActions = { ...(perm.extra_actions || {}) };
         if (template.extraActionsAllTrue) {
           (EXTRA_ACTIONS[mod.code] || []).forEach((action) => {
             extraActions[action] = true;
@@ -100,9 +105,12 @@ async function deliverCredentials({ tenant, user, email, fullName, temporaryPass
 
 /**
  * Alta completa de un colegio:
- *   1. (transacción) tenants → tenant_settings → roles base y permisos →
- *      usuario admin principal con clave temporal y `must_change_password` →
+ *   1. (transacción) nombre de esquema → tenants (con schema_name) →
+ *      CREATE SCHEMA + réplica de tablas (schemaProvisioning.service) →
+ *      dentro del esquema: tenant_settings → roles base y permisos → usuario
+ *      admin principal con clave temporal y `must_change_password` →
  *      ficha en platform.tenant_accounts → auditoría.
+ *      El DDL de PostgreSQL es transaccional: si algo falla, no queda ni el esquema.
  *   2. (después del COMMIT) correo de bienvenida por SMTP.
  *
  * El correo va después a propósito: si fallara dentro de la transacción no se
@@ -121,12 +129,21 @@ async function provisionTenant(input, { superadminId, ip }) {
   let created;
   try {
     created = await db.transaction(async (trx) => {
-      const [tenant] = await trx('tenants')
-        .insert({ name: input.name.trim(), slug, status: 'active' })
-        .returning(['id', 'name', 'slug', 'status', 'created_at']);
+      // 1) Esquema propio: nombre derivado del nombre del colegio ("Colegio San Ignacio" → colegio_san_ignacio).
+      const schemaName = await allocateSchemaName(trx, input.name);
 
-      // A partir de aquí, toda tabla con RLS queda acotada a este colegio.
-      await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [tenant.id]);
+      // 2) Registro maestro (public.tenants): el sistema escolar lee aquí el esquema al iniciar sesión.
+      const [tenant] = await trx('tenants')
+        .insert({ name: input.name.trim(), slug, status: 'active', schema_name: schemaName })
+        .returning(['id', 'name', 'slug', 'status', 'created_at', 'schema_name']);
+
+      // 3) CREATE SCHEMA + réplica de las tablas del colegio (plantilla: public).
+      const schema = await createTenantSchema(trx, schemaName, { schoolDbRole });
+
+      // 4) Desde aquí, todo lo que se inserta va al esquema del colegio (search_path)
+      //    y queda acotado a él por RLS (app.tenant_id).
+      await scopeToTenant(trx, { id: tenant.id, schemaName });
+      tenant.schemaSummary = schema;
 
       await trx('tenant_settings').insert({
         tenant_id: tenant.id,
@@ -168,6 +185,7 @@ async function provisionTenant(input, { superadminId, ip }) {
         details: {
           name: tenant.name,
           slug,
+          schema: schemaName,
           adminEmail,
           plan: input.plan || 'standard',
           pricePerStudent: input.pricePerStudent ?? DEFAULT_PRICE_PER_STUDENT,
@@ -182,6 +200,10 @@ async function provisionTenant(input, { superadminId, ip }) {
     if (err.code === '23505' && String(err.constraint || '').includes('slug')) {
       const message = `La URL "/${slug}" ya está en uso por otro colegio.`;
       throw ApiError.conflict(message, [{ path: 'slug', message }]);
+    }
+    // Otro alta tomó el mismo nombre de esquema en paralelo (42P06 = duplicate_schema).
+    if (err.code === '42P06' || (err.code === '23505' && String(err.constraint || '').includes('schema_name'))) {
+      throw ApiError.conflict('Otro colegio con un nombre parecido se está creando en este momento. Inténtalo de nuevo.');
     }
     throw err;
   }
@@ -205,6 +227,8 @@ async function provisionTenant(input, { superadminId, ip }) {
       slug: created.tenant.slug,
       status: created.tenant.status,
       createdAt: created.tenant.created_at,
+      schemaName: created.tenant.schema_name,
+      schema: created.tenant.schemaSummary,
     },
     admin: { id: created.user.id, fullName: created.user.full_name, email: adminEmail, username: created.user.username },
     email: delivery,

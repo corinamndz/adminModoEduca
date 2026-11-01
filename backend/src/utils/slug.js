@@ -21,6 +21,8 @@ const RESERVED_SLUGS = new Set([
   // rutas de primer nivel del sistema escolar
   'tenant', 'roles', 'staff', 'students', 'guardians', 'academics', 'schedules', 'discipline',
   'clubs', 'events', 'evaluation-plans', 'programmatic-content', 'grading', 'payments', 'src',
+  'appointments', 'notifications', 'configuracion-inicial', 'secciones-academicas', 'audit',
+  'recognitions', 'support',
 ]);
 
 const normalizeSlug = (value) => String(value || '').trim().toLowerCase();

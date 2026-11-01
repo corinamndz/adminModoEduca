@@ -46,6 +46,25 @@ cada request fija `app.tenant_id` y las políticas RLS filtran las filas. El Ten
 - **Desactivar** un colegio pone `tenants.status = 'suspended'`: el login escolar ya rechaza colegios que no
   estén `active`.
 
+### Un esquema de PostgreSQL por colegio
+
+Desde la migración `003`, cada colegio **nuevo** vive en su propio esquema (`public.tenants.schema_name`):
+
+| Pieza | Dónde |
+|---|---|
+| Nombre del esquema | Derivado del nombre: "Colegio San Ignacio" → `colegio_san_ignacio` (`_2`, `_3`… si ya existe) — `backend/src/utils/schemaName.js` |
+| Aprovisionamiento | `CREATE SCHEMA` + réplica de las tablas del colegio tomando **`public` como plantilla** (columnas, CHECK, índices, FKs, triggers, RLS) — `backend/src/modules/tenants/schemaProvisioning.service.js` |
+| Tablas del colegio | Las que tienen `tenant_id` y las que dependen de ellas por FK (55 hoy) |
+| Tablas globales (quedan en `public`) | `tenants`, `modules`, `currencies`, `education_levels`, `schema_migrations` |
+| Funciones de triggers | Compartidas en `public`: resuelven sus tablas por `search_path` |
+| Enrutamiento | Cada transacción fija `app.tenant_id` (RLS) y `search_path = "<esquema>", public` — `scopeToTenant` en `config/database.js` (aquí y en el sistema escolar) |
+
+- Todo el alta corre en **una transacción** (el DDL de PostgreSQL es transaccional): si algo falla, no queda ni el esquema.
+- Los colegios **anteriores** tienen `schema_name = NULL` y siguen en `public` sin cambios.
+- Cada esquema guarda su propia `schema_migrations` con las migraciones que traía la plantilla al copiarse.
+- `SCHOOL_DB_ROLE` (opcional): si el sistema escolar se conecta con otro rol, recibe permisos sobre cada esquema nuevo.
+- **Pendiente:** las migraciones **futuras** del sistema escolar deben aplicarse también a cada esquema (ver «Puntos a mantener sincronizados»).
+
 ### Enrutamiento por URL (`/nombre-del-colegio`)
 
 - **Backend**: `src/middlewares/tenantResolver.middleware.js` toma `:tenantSlug` de la ruta, lo busca en
@@ -135,3 +154,9 @@ Los totales del panel global suman **solo colegios activos**.
   Los módulos se leen de la tabla `modules` en cada alta; solo las acciones especiales están copiadas en el código.
 - Si una migración escolar agrega columnas `NOT NULL` sin valor por defecto en `tenants`, `tenant_settings`,
   `roles` o `users`, hay que actualizar `provisioning.service.js`.
+- **Migraciones del sistema escolar con esquemas por colegio.** Hoy `sistema-escolar/backend/scripts/migrate.js`
+  solo actualiza `public`. Un esquema creado hoy nace con todas las migraciones aplicadas, pero las **siguientes**
+  (049, 050…) no le llegan solas. Hace falta que el runner también recorra los esquemas de `tenants.schema_name`
+  (con `search_path = "<esquema>", public` y su propia `schema_migrations`), y que las migraciones con cambios
+  de DATOS distingan lo global de lo del colegio: por ejemplo, la 047 crea el rol Coordinador «en cada colegio»
+  recorriendo `tenants`; ejecutada en un esquema, crearía filas de todos los colegios en él.

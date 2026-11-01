@@ -194,6 +194,18 @@ function TenantDetailPage({ slug }) {
                 <Badge variant="neutral">{isActive ? 'No factura: plan de prueba' : 'No factura: colegio inactivo'}</Badge>
               )}
             </dd>
+            <dt>Base de datos</dt>
+            <dd>
+              {tenant.schemaName ? (
+                <>
+                  Esquema propio <code className="slug">{tenant.schemaName}</code>
+                </>
+              ) : (
+                <span title="Colegio creado antes de los esquemas por colegio: sus datos están en el esquema public, separados por tenant_id y RLS.">
+                  Esquema compartido <code className="slug">public</code>
+                </span>
+              )}
+            </dd>
             <dt>Correo del colegio</dt>
             <dd>{tenant.contact.email || '—'}</dd>
             <dt>Teléfono</dt>

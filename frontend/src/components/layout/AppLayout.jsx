@@ -7,6 +7,7 @@ import BrandLogo from './BrandLogo';
 const NAV = [
   { to: '/', label: 'Panel global', icon: 'home', end: true },
   { to: '/tenants', label: 'Colegios', icon: 'building' },
+  { to: '/support', label: 'Soporte técnico', icon: 'helpCircle' },
 ];
 
 const initials = (name = '') =>

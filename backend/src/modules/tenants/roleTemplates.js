@@ -17,12 +17,34 @@ const EXTRA_ACTIONS = {
 
 const ADMIN_ROLE = 'Administrador';
 
+// Jerarquía (roles.hierarchy_level, migración 047 del sistema escolar):
+// Director (Administrador) > Coordinador > Docente.
 const ROLE_TEMPLATES = {
   [ADMIN_ROLE]: {
+    hierarchyLevel: 1,
     allModules: { can_create: true, can_read: true, can_update: true, can_delete: true },
     extraActionsAllTrue: true,
   },
+  Coordinador: {
+    hierarchyLevel: 2,
+    // Gestiona a los docentes de su etapa (Personal) y supervisa en consulta el resto.
+    byModule: {
+      dashboard: { can_read: true },
+      staff: { can_create: true, can_read: true, can_update: true, can_delete: true },
+      students: { can_read: true },
+      guardians: { can_read: true },
+      academics: { can_read: true },
+      evaluation_plans: { can_read: true },
+      grading: { can_read: true, extra_actions: { view_all_sections: true } },
+      schedules: { can_read: true },
+      discipline: { can_read: true },
+      clubs: { can_read: true },
+      events: { can_read: true },
+      appointments: { can_read: true },
+    },
+  },
   Docente: {
+    hierarchyLevel: 3,
     byModule: {
       dashboard: { can_read: true },
       students: { can_read: true },
@@ -32,6 +54,12 @@ const ROLE_TEMPLATES = {
       discipline: { can_read: true },
       clubs: { can_read: true },
       events: { can_read: true },
+    },
+  },
+  // Personal de cobranza: solo Pagos (migración 053 del sistema escolar). Fuera de la jerarquía.
+  Finanzas: {
+    byModule: {
+      payments: { can_create: true, can_read: true, can_update: true, can_delete: true, extra_actions: { approve_payment: true, export: true } },
     },
   },
   Representante: {

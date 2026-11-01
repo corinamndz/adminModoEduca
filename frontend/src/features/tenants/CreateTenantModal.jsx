@@ -6,7 +6,7 @@ import Icon from '../../components/ui/Icon';
 import Modal from '../../components/ui/Modal';
 import { Alert, Field } from '../../components/ui/primitives';
 import PriceInput, { parsePrice, priceProblem } from '../../components/ui/PriceInput';
-import { isReservedSlug, isValidSlug, normalizeSlug, slugify } from '../../lib/slug';
+import { isReservedSlug, isValidSlug, normalizeSlug, schemaPreview, slugify } from '../../lib/slug';
 
 const EMPTY = {
   name: '',
@@ -143,7 +143,20 @@ function CreateTenantModal({ open, onClose, onCreated }) {
 
         <h4 className="form-section">Colegio</h4>
         <div className="form-grid">
-          <Field label="Nombre del colegio" htmlFor="t-name" required error={errors.name} full>
+          <Field
+            label="Nombre del colegio"
+            htmlFor="t-name"
+            required
+            error={errors.name}
+            hint={
+              schemaPreview(form.name) ? (
+                <>
+                  Base de datos: esquema propio <code>{schemaPreview(form.name)}</code> (si ya existe, se agrega _2, _3…).
+                </>
+              ) : undefined
+            }
+            full
+          >
             <input id="t-name" className="input" value={form.name} onChange={(e) => onNameChange(e.target.value)} maxLength={150} placeholder="Ej.: Colegio San José" />
           </Field>
 

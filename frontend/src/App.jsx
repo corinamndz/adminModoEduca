@@ -6,6 +6,7 @@ import LoginPage from './features/auth/LoginPage';
 import DashboardPage from './features/dashboard/DashboardPage';
 import TenantsPage from './features/tenants/TenantsPage';
 import TenantDetailPage from './features/tenants/TenantDetailPage';
+import SupportPage from './features/support/SupportPage';
 import NotFoundPage from './features/dashboard/NotFoundPage';
 import { isValidSlug, isReservedSlug } from './lib/slug';
 
@@ -38,6 +39,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
           <Route path="tenants" element={<TenantsPage />} />
+          <Route path="support" element={<SupportPage />} />
           {/* localhost:5174/nombre-del-colegio */}
           <Route path=":tenantSlug" element={<TenantSlugRoute />} />
           <Route path="*" element={<NotFoundPage />} />
